@@ -10,7 +10,9 @@ import { runAsWorker, sameDirectory, withoutDirectory, workerBin } from './infra
 import { SetupError } from './setup.ts'
 
 const reason = (error: unknown): string => error instanceof Error ? error.message : String(error)
-const absolute = (description: string) => s.string().pattern(/^\//).description(`${description} Absolute path.`)
+// 原为 /^\//：只认 POSIX 绝对路径，Windows 的 C:/... 会被拒（"Absolute path" 名不副实）。
+// 改为同时接受盘符形式；其余判断仍靠 node:path 的 isAbsolute。
+const absolute = (description: string) => s.string().pattern(/^(?:\/|[A-Za-z]:[\\/])/).description(`${description} Absolute path.`)
 /** Plugin configuration of the dsh-superagent entry. Volatile fields apply without a restart because dsh-superagent reads them on each use; changing `stateDir` remounts the plugin. */
 export const Config = s.object({
   stateDir: absolute('Directory for the database, locks, worker shims, the agent\'s git configuration and, by default, the ticket directories.').required(),
