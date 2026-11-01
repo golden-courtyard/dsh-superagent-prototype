@@ -5,7 +5,7 @@
 
 ---
 
-## 一、三处不兼容
+## 一、四处不兼容
 
 ### ① `stateDir` 只认 POSIX 绝对路径（**必须打补丁，否则插件不加载**）
 
@@ -76,6 +76,67 @@ if not dsh or not shutil.which('tmux'):
 
 ---
 
+### ④ 找不到 `gh`（以及 `git` / `dsh` / `lark-cli`）—— 只按裸名找，不补 `.exe`
+
+**症状**：面板部署检查报
+
+```
+找不到智能体的 GitHub CLI。
+gh is not an executable file on PATH
+```
+
+**位置**：`src/deployment.ts:62` 的 `executable()`
+
+```ts
+// 上游
+.map(dir => join(dir, name))     // 找 "C:\Program Files\GitHub CLI\gh"
+                                 // 真文件是 "gh.exe" —— 永远找不到
+```
+
+**原因**：Windows 上 PATH 里存的是**不带扩展名的命令名**，磁盘上是 `gh.exe`。Node 的 `statSync('<dir>/gh')` 直接 ENOENT。
+
+**影响面**：`git`、`dsh`、`lark-cli` 走的是**同一个函数**——**在 Windows 上，凡是用它定位的命令全部失败**，不止 gh。
+
+**本地改法**：按 `PATHEXT` 展开候选
+
+```ts
+const PATHEXT = process.platform === 'win32' ? (process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean) : []
+
+export function executable(name: string, path: string, exclude?: string): string {
+  if (name.includes('/') && !isAbsolute(name)) throw new Error(`${name} must be a command name or an absolute path`)
+  const bare = isAbsolute(name) ? [name] : path.split(delimiter).filter(dir => isAbsolute(dir) && !(exclude && sameDirectory(dir, exclude))).map(dir => join(dir, name))
+  // 只对"没有扩展名"的候选做补全，避免把 gh.exe 变成 gh.exe.exe
+  const candidates = bare.flatMap(p => PATHEXT.length && !/\.[A-Za-z0-9]+$/.test(p) ? ['', ...PATHEXT].map(ext => p + ext) : [p])
+  for (const candidate of candidates) {
+    try { if (statSync(candidate).isFile()) { accessSync(candidate, constants.X_OK); return candidate } }
+    catch { /* Not an executable file here; try the next PATH directory. */ }
+  }
+  throw new Error(`${name} is not an executable file${isAbsolute(name) ? '' : ' on PATH'}`)
+}
+```
+
+**注意**：正则用 `$` 锚定在**末尾**判断有无扩展名——所以目录名里带点（`C:\Users\lmq\.local\bin\gh`）不会误判。
+
+### ⑤ 打完上面两个补丁之后，还会撞到的下一层（**不是 bug，是设计**）
+
+`gh` 找到之后，部署检查还会要求：**这个 gh 登录的是「智能体账号」，不是你自己的**。
+
+> SETUP.md 原话：**A dedicated account, never the operator's own**: everything the agent writes appears under this name.
+
+**处置**（三选一）：
+
+| | 做法 | 代价 |
+|---|---|---|
+| A | 建个小号专门给它 | 要时间；建号本身不复杂，但要配 app / 权限 |
+| B | 用你自己的账号 | 能用，但**它写的每条评论、每个 PR 都挂你名字**，且违反项目设计 |
+| C | **不配 GitHub 源** | 面板常驻两条"系统问题"，**但不影响浏览与理解** |
+
+**只想看看长什么样 ⇒ 选 C。** 那两条红字不挡任何东西。
+
+> 2026-11-01 实测：`gh auth status` 已登录 `liumiaoqi`，scopes 含 `repo` / `workflow` —— **技术上够用**，只是不符合"独立账号"的设计要求。
+
+
+
 ## 二、装法（Windows 实测）
 
 前置：Node ≥24（实测 v26.12.1 可用）、pnpm、git、Python、gh。**不需要 tmux**。
@@ -138,7 +199,21 @@ token URL 只打 stdout，而重定向到管道/文件时 Node 是**块缓冲**�
 | `import('./lib/index.js')` | ✅ 导出 `Config, Engine, apply, canRetry…` |
 | `--dump-config` 合成 | ✅ 1408 行，bundle 在树里 |
 | 面板启动 | ✅ `127.0.0.1:3082`（需带 token 的 URL，纯访问返回 401） |
-| 插件加载 | ✅ 打补丁后 `异常` 消失，显示正常空状态 |
+| 插件加载 | ✅ 打补丁 ① 后 `异常` 消失，显示正常空状态 |
+| 壁纸插件 bgwall | ✅ 复制 `plugins/bgwall.mjs` + `assets/wallpaper.jpg` 到本 profile，`--dump-config` 里能看到 `file:///…/bgwall.mjs` |
+
+### 未端到端验证的一项
+
+**④ 的 `PATHEXT` 补丁没跑过完整流程。** 只验到：
+
+- `gh.exe` 确实在 PATH 上（`C:\Program Files\GitHub CLI\gh.exe`）
+- 补全逻辑单独模拟能命中
+- 编译产物里 `PATHEXT` 常量已就位
+
+**没有**实际看到面板上那句 `gh is not an executable file on PATH` 消失——那需要重启服务，而重启在本机由操作者做。
+
+**重启后如果还报同一句**，说明还有第三层（`workerProbe` 用 `runAsWorker(['env', 'PATH=…', …])`，Windows 上 `env.exe` 来自 Git 的 `usr\bin`，要确认它在 PATH 里）。
+
 
 ---
 
