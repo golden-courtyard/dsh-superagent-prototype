@@ -59,10 +59,16 @@ export interface Deployment extends Machine {
 }
 export interface FeishuBot { cli: string; appId: string; brand: 'feishu' | 'lark'; botId: string; name: string }
 
+// Windows 上 PATH 里存的是不带扩展名的命令名（`gh`），真文件是 `gh.exe`。
+// 原实现只试 `join(dir, name)`，于是永远找不到 gh/git 这类命令 —— 补 PATHEXT 展开。
+const PATHEXT = process.platform === 'win32' ? (process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean) : []
+
 /** Resolve a command name or absolute path to an executable file, ignoring the worker shim directory. */
 export function executable(name: string, path: string, exclude?: string): string {
   if (name.includes('/') && !isAbsolute(name)) throw new Error(`${name} must be a command name or an absolute path`)
-  const candidates = isAbsolute(name) ? [name] : path.split(delimiter).filter(dir => isAbsolute(dir) && !(exclude && sameDirectory(dir, exclude))).map(dir => join(dir, name))
+  const bare = isAbsolute(name) ? [name] : path.split(delimiter).filter(dir => isAbsolute(dir) && !(exclude && sameDirectory(dir, exclude))).map(dir => join(dir, name))
+  // 只对"没有扩展名"的候选做补全，避免把 gh.exe 变成 gh.exe.exe
+  const candidates = bare.flatMap(p => PATHEXT.length && !/\.[A-Za-z0-9]+$/.test(p) ? ['', ...PATHEXT].map(ext => p + ext) : [p])
   for (const candidate of candidates) {
     try { if (statSync(candidate).isFile()) { accessSync(candidate, constants.X_OK); return candidate } }
     catch { /* Not an executable file here; try the next PATH directory. */ }
