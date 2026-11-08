@@ -1,7 +1,27 @@
 # 在 Windows 上跑 dsh-superagent —— 本地适配记录
 
-> 2026-11-01 实测。上游 `deepseek-ai/dsh-superagent-prototype`（单提交 `6337fc8`，v0.1.0）**未针对 Windows 做适配**。
-> 本文记三处不兼容、装法与验证结果。**改上游代码前先读这里，别重复排查。**
+> 2026-11-01 实测，2026-11-08 更新。
+>
+> **上游状态：实验性项目，已停止维护。**（`deepseek-ai/dsh-superagent-prototype`，单提交，v0.1.0，无 PR/issue 通道）
+>
+> 上游在 2026-11-03 **重写过一次历史**：`6337fc8` → `8c32a9d`。两者 tree 完全相同（`3efbb036…`）、
+> author/committer/message/时间全一致、无签名——**内容一个字节没变，只是 commit 对象被重建**。
+> 后果是所有 fork 的祖先关系断开，`git pull upstream` 会失败。本 fork 已 `rebase --onto` 接上 `8c32a9d`。
+>
+> **⇒ 本 fork（`golden-courtyard/dsh-superagent-prototype`）即唯一真源。** 改动只服务本地使用，
+> 不再考虑上游是否接受。上游若被归档或删除，以本地克隆为准。
+>
+> 本文记四处不兼容、装法与验证结果。**改代码前先读这里，别重复排查。**
+
+### 本地已提交的三处修复（2026-11-08 核对）
+
+| commit | 改了什么 | 对应章节 |
+|---|---|---|
+| `d4874f7` | `stateDir` 正则接受盘符路径（`C:\…`）；新增 `WINDOWS.md` 156 行 | ① |
+| `a3edd4c` | `WINDOWS.md` 补 ④（`gh` 找不到）与 ⑤（智能体账号那一层），+77 行 | ④ ⑤ |
+| `5457484` | `executable()` 按 `PATHEXT` 展开，修 `gh`/`git`/`dsh` 找不到 | ④ |
+
+（这三个 SHA 是 rebase 之后的值；rebase 前分别是 `ccf19ede` / `7ef3969a` / `46b1580`。）
 
 ---
 
